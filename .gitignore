@@ -46,3 +46,11 @@ Temporary Items
 
 # others
 .playwright-mcp
+
+# Local timer development and packaged application state
+work/
+logs/
+
+# Public timer previews
+!docs/timer/images/
+!docs/timer/images/*.png

@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   validate:
-    if: github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v')
+    if: github.repository == 'LeagueAkari/LeagueAkari' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
     name: Validate Release Ref
     runs-on: ubuntu-latest
     steps:
