@@ -1,3 +1,4 @@
+import type { TimerLiveData } from '@shared/cd-timer'
 import { Rectangle } from 'electron'
 import { makeAutoObservable, observableRef } from 'mobx'
 
@@ -80,6 +81,13 @@ export class CdTimerWindowState {
 
   gameTime: number | null = null
 
+  liveData: TimerLiveData | null = null
+
+  setLiveData(data: TimerLiveData | null) {
+    this.liveData = data
+    this.gameTime = data?.gameTime ?? null
+  }
+
   setStatus(status: 'normal' | 'maximized' | 'minimized') {
     this.status = status
   }
@@ -112,6 +120,7 @@ export class CdTimerWindowState {
   constructor() {
     makeAutoObservable(this, {
       trackedBounds: observableRef,
+      liveData: observableRef,
       supportedGameModes: observableRef
     })
   }

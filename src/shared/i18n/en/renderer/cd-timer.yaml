@@ -1,5 +1,9 @@
 cdTimer:
   window:
+    noActiveTimers: No active cooldowns to send.
+    positionHelp: Click to correct the position; unknown positions show a question mark
+    waitingForSpells: Waiting for enemy summoner spells
+    cooldownUnavailable: Cooldown data is unavailable for this spell. Please try again later.
     countdown: '{{championName}} {{spellName}} {{minutes}}m{{seconds}}s until ready'
     countup: '{{championName}} {{spellName}} {{minutes}}m{{seconds}}s used'
     nativeInjectionUnsupported: Send-to-game is not supported in this environment (requires native input injection).

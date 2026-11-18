@@ -1,32 +1,44 @@
 <template>
   <div class="player">
-    <NIcon v-if="championId === null" class="timer-icon placeholder">
-      <Timer20FilledIcon />
-    </NIcon>
-    <ChampionIcon
-      v-else
-      :champion-id="championId"
-      class="champion-icon"
-      ring
-      :ring-width="2"
-      ring-color="#fc82eaa0"
-    />
+    <NDropdown
+      trigger="click"
+      :options="positionOptions"
+      @select="(key) => emits('positionChange', String(key))"
+    >
+      <NButton
+        text
+        size="tiny"
+        class="position-label"
+        :title="t('cdTimer.window.positionHelp')"
+        :aria-label="label"
+      >
+        {{ label.slice(0, 1).toUpperCase() }}
+      </NButton>
+    </NDropdown>
     <NIcon class="arrow-icon">
       <ChevronRight16FilledIcon />
     </NIcon>
     <div
       class="summoner-spell"
-      @click="$emit('spell1Click', spell1Id, timerType)"
-      @wheel="($event) => $emit('spell1Wheel', spell1Id, $event.deltaY)"
+      role="button"
+      tabindex="0"
+      :aria-label="`${label} d`"
+      @keydown.enter.prevent="$emit('spell1Click', spell1Id, timerType)"
+      @keydown.space.prevent="$emit('spell1Click', spell1Id, timerType)"
+      @pointerdown.left.prevent="captureSpellPointer"
+      @pointerup.left.prevent="$emit('spell1Click', spell1Id, timerType)"
+      @wheel.prevent="($event) => $emit('spell1Wheel', spell1Id, $event.deltaY)"
       ref="spell1"
+      data-timer-slot="d"
     >
-      <NIcon class="timer-icon timer" v-if="championId === null">
+      <span class="slot-label">d</span>
+      <NIcon class="timer-icon timer" v-if="!spell1Id">
         <Timer16FilledIcon />
       </NIcon>
       <SummonerSpellDisplay v-else :size="32" :spell-id="spell1Id" disable-popover />
       <div
         class="mask"
-        :class="{ timeout: spell1BaseTimestamp < 0 }"
+        :class="{ timeout: spell1FormattedTimeText === 'OK' }"
         v-if="spell1BaseTimestamp !== null"
       >
         {{ spell1FormattedTimeText }}
@@ -36,17 +48,25 @@
     <div class="spacer"></div>
     <div
       class="summoner-spell"
-      @click="$emit('spell2Click', spell2Id, timerType)"
-      @wheel="($event) => $emit('spell2Wheel', spell2Id, $event.deltaY)"
+      role="button"
+      tabindex="0"
+      :aria-label="`${label} f`"
+      @keydown.enter.prevent="$emit('spell2Click', spell2Id, timerType)"
+      @keydown.space.prevent="$emit('spell2Click', spell2Id, timerType)"
+      @pointerdown.left.prevent="captureSpellPointer"
+      @pointerup.left.prevent="$emit('spell2Click', spell2Id, timerType)"
+      @wheel.prevent="($event) => $emit('spell2Wheel', spell2Id, $event.deltaY)"
       ref="spell2"
+      data-timer-slot="f"
     >
-      <NIcon class="timer-icon timer" v-if="championId === null">
+      <span class="slot-label">f</span>
+      <NIcon class="timer-icon timer" v-if="!spell2Id">
         <Timer16FilledIcon />
       </NIcon>
       <SummonerSpellDisplay v-else :size="32" :spell-id="spell2Id" disable-popover />
       <div
         class="mask"
-        :class="{ timeout: spell2BaseTimestamp < 0 }"
+        :class="{ timeout: spell2FormattedTimeText === 'OK' }"
         v-if="spell2BaseTimestamp !== null"
       >
         {{ spell2FormattedTimeText }}
@@ -57,37 +77,42 @@
 </template>
 
 <script setup lang="ts">
-import { useRightClick } from '@cd-timer-window/composables/useRightClick'
-import ChampionIcon from '@renderer-shared/components/widgets/ChampionIcon.vue'
+import { POSITIONS } from '@shared/cd-timer'
+import { useTranslation } from 'i18next-vue'
 import SummonerSpellDisplay from '@renderer-shared/components/widgets/SummonerSpellDisplay.vue'
 import { ChevronRight16Filled as ChevronRight16FilledIcon } from '@vicons/fluent'
-import {
-  Timer16Filled as Timer16FilledIcon,
-  Record16Regular as Timer20FilledIcon
-} from '@vicons/fluent'
+import { Timer16Filled as Timer16FilledIcon } from '@vicons/fluent'
 import { useIntervalFn, useMousePressed } from '@vueuse/core'
-import { NIcon } from 'naive-ui'
+import { NIcon, NButton, NDropdown } from 'naive-ui'
 import { ref, useTemplateRef, watch } from 'vue'
 
 const emits = defineEmits<{
+  positionChange: [position: string]
   spell1Click: [spellId: number, type: 'countdown' | 'countup']
   spell2Click: [spellId: number, type: 'countdown' | 'countup']
-  spell1DoubleRightClick: [spellId: number, type: 'countdown' | 'countup']
-  spell2DoubleRightClick: [spellId: number, type: 'countdown' | 'countup']
   spell1Wheel: [spellId: number, deltaY: number]
   spell2Wheel: [spellId: number, deltaY: number]
 }>()
 
+// The overlay does not take focus from the game. Handle pointer release directly:
+// native mouse input can arrive without Chromium producing a synthetic click.
+// Capture keeps release on the pressed spell even if the cursor moves slightly.
+const captureSpellPointer = (event: PointerEvent) => {
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+const { t } = useTranslation()
+const positionOptions = POSITIONS.map((position) => ({ label: position, key: position }))
+
 const {
-  championId = null,
+  label = '',
   spell1Id = 1,
   spell2Id = 2,
   timerType = 'countup',
   spell1BaseTimestamp = null,
   spell2BaseTimestamp = null
 } = defineProps<{
-  // `null` for custom timer
-  championId?: number | null
+  label?: string
 
   spell1Id?: number
   spell2Id?: number
@@ -108,14 +133,9 @@ const formatTimeToSeconds = (type: 'countdown' | 'countup', timestamp: number): 
   const now = Date.now()
   const duration = (type === 'countdown' ? timestamp - now : now - timestamp) / 1000
 
-  if (duration < 0) return 'OK'
-  if (duration > 999) return '999'
-
-  if (duration < 10) {
-    return duration.toFixed(1)
-  }
-
-  return Math.floor(duration).toString()
+  if (type === 'countdown' && duration <= 0) return 'OK'
+  const seconds = Math.max(0, type === 'countdown' ? Math.ceil(duration) : Math.floor(duration))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 const update = () => {
@@ -136,6 +156,7 @@ const { pause, resume } = useIntervalFn(update, 100, {
 watch(
   [() => spell1BaseTimestamp, () => spell2BaseTimestamp],
   ([t1, t2]) => {
+    update()
     if (t1 !== null || t2 !== null) {
       resume()
     } else {
@@ -149,14 +170,6 @@ watch(
 
 const spell1El = useTemplateRef('spell1')
 const spell2El = useTemplateRef('spell2')
-
-useRightClick(spell1El, () => {
-  emits('spell1DoubleRightClick', spell1Id, timerType)
-})
-
-useRightClick(spell2El, () => {
-  emits('spell2DoubleRightClick', spell2Id, timerType)
-})
 
 const { pressed: spell1Pressed } = useMousePressed({
   target: spell1El
@@ -173,6 +186,25 @@ const { pressed: spell2Pressed } = useMousePressed({
   align-items: center;
   justify-content: center;
 
+  .position-label {
+    width: 32px;
+    height: 32px;
+    border: 2px solid #70d0d9;
+    border-radius: 50%;
+    background: #242438;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    position: relative;
+  }
+  .slot-label {
+    display: block;
+    text-align: center;
+    color: #fff;
+    font-size: 11px;
+    line-height: 14px;
+  }
+
   .arrow-icon {
     margin: 0 4px;
     color: #fff8;
@@ -187,20 +219,8 @@ const { pressed: spell2Pressed } = useMousePressed({
     font-size: 24px;
   }
 
-  .timer-icon.placeholder {
-    border: 1px solid rgba(112, 208, 217, 0.4);
-    border-radius: 4px;
-    color: rgba(112, 208, 217, 0.4);
-  }
-
   .timer-icon.timer {
     color: #fff;
-  }
-
-  .champion-icon {
-    height: 32px;
-    width: 32px;
-    border-radius: 4px;
   }
 
   .spacer {
@@ -212,6 +232,7 @@ const { pressed: spell2Pressed } = useMousePressed({
   }
 
   .summoner-spell {
+    -webkit-app-region: no-drag;
     position: relative;
     cursor: pointer;
     transition: all 0.3s;
@@ -219,11 +240,17 @@ const { pressed: spell2Pressed } = useMousePressed({
     box-sizing: border-box;
     border-radius: 4px;
 
+    &:focus-visible {
+      outline: 2px solid #fc82ea;
+      outline-offset: 2px;
+    }
+
     &:hover {
       filter: brightness(0.8);
     }
 
     .click-indicator {
+      pointer-events: none;
       transition:
         background-color 0.3s,
         transform 0.1s;
@@ -241,11 +268,12 @@ const { pressed: spell2Pressed } = useMousePressed({
     }
 
     .mask {
+      pointer-events: none;
       position: absolute;
-      top: 0;
+      top: 14px;
       left: 0;
       width: 100%;
-      height: 100%;
+      height: 32px;
       background-color: #000000a0;
       border-radius: 4px;
       display: flex;

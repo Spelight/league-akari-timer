@@ -334,7 +334,7 @@ settings:
         leftClick1: 左键
         leftClick2: 开始或关闭计时器
         rightDoubleClick1: 右键双击
-        rightDoubleClick2: 已开始的英雄技能计时器会模拟输入到聊天框
+        rightDoubleClick2: 发送当前技能；在计时器内容区域连续右键三次，汇总发送所有未结束的计时器
         wheel1: 滑轮
         wheel2: 调整已开始计时器的时间
       enabled:

@@ -8,6 +8,7 @@ import { z } from 'zod'
 
 import { BaseAkariWindow } from '../base-akari-window'
 import type { WindowManagerMainContext } from '../context'
+import { TimerLiveDataLoader } from './live-data-loader'
 import { CdTimerWindowSettings, CdTimerWindowState } from './state'
 
 export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTimerWindowSettings> {
@@ -18,7 +19,6 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
   static readonly BASE_HEIGHT = 220 // 220 for 5 players (as default)
   static readonly MIN_WIDTH = 100
   static readonly MIN_HEIGHT = 100
-  static readonly GAME_STATS_POLL_INTERVAL = 4000
 
   static readonly ENTER_KEY_CODE = 13
   static readonly ENTER_KEY_INTERNAL_DELAY = 20
@@ -26,7 +26,7 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
 
   public shortcutTargetId: string
 
-  private _gameStatsPollTimer: NodeJS.Timeout | null = null
+  private readonly _liveDataLoader: TimerLiveDataLoader
 
   private _applyOverlayWindowBehavior() {
     if (!this._window || this._window.isDestroyed()) {
@@ -90,7 +90,7 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
         autoHideMenuBar: true,
         backgroundColor: '#00000000',
         webPreferences: {
-          backgroundThrottling: true
+          backgroundThrottling: false
         },
         titleBarStyle: 'hidden',
         trafficLightPosition: { x: 8, y: 8 }
@@ -98,6 +98,9 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
     })
 
     this.shortcutTargetId = `${this._namespace}/show`
+    this._liveDataLoader = new TimerLiveDataLoader(this._gameClient.api, (data) => {
+      this.state.setLiveData(data)
+    })
   }
 
   private _watchCdTimerWindow() {
@@ -209,20 +212,9 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
       () => shouldUseCdTimer.get(),
       (should) => {
         if (should) {
-          this._logger.info('Game stats polling started')
-          this._updateGameStats()
-          this._gameStatsPollTimer = setInterval(
-            () => this._updateGameStats(),
-            AkariCdTimerWindow.GAME_STATS_POLL_INTERVAL
-          )
+          this._liveDataLoader.start()
         } else {
-          if (this._gameStatsPollTimer) {
-            this._logger.info('Game stats polling stopped')
-            clearInterval(this._gameStatsPollTimer)
-            this._gameStatsPollTimer = null
-          }
-
-          this.state.setGameTime(null)
+          this._liveDataLoader.stop()
         }
       },
       { fireImmediately: true }
@@ -240,15 +232,14 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
         throw new AkariIpcError('cd-timer is sending', 'AlreadySending')
       }
 
-      if (!(await GameClientMain.isGameClientForeground())) {
-        throw new AkariIpcError('game client is not foreground', 'GameClientNotForeground')
-      }
-
       const trimmed = typeof text === 'string' ? text.trim() : ''
       if (!trimmed) return
 
       isSending = true
       try {
+        if (!(await GameClientMain.isGameClientForeground())) {
+          throw new AkariIpcError('game client is not foreground', 'GameClientNotForeground')
+        }
         await nativeInput.instance.sendKey(AkariCdTimerWindow.ENTER_KEY_CODE, true)
         await sleep(AkariCdTimerWindow.ENTER_KEY_INTERNAL_DELAY)
         await nativeInput.instance.sendKey(AkariCdTimerWindow.ENTER_KEY_CODE, false)
@@ -267,14 +258,9 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
     })
   }
 
-  private async _updateGameStats() {
-    try {
-      const { data } = await this._gameClient.api.getGameStats()
-      this.state.setGameTime(data.gameTime)
-    } catch (error) {
-      this.state.setGameTime(null)
-      this._logger.warn('Failed to get game data', error)
-    }
+  override async onDispose() {
+    this._liveDataLoader.stop()
+    await super.onDispose()
   }
 
   override async onInit() {
@@ -300,7 +286,7 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
   }
 
   protected override getStatePropKeys() {
-    return ['supportedGameModes', 'gameTime'] as const
+    return ['supportedGameModes', 'gameTime', 'liveData'] as const
   }
 
   protected override getSettingPropKeys() {

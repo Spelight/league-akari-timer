@@ -336,7 +336,7 @@ settings:
         leftClick1: Left click
         leftClick2: Start or stop this timer
         rightDoubleClick1: Right double click
-        rightDoubleClick2: Send a started champion spell timer to in-game chat
+        rightDoubleClick2: Send this spell timer. Triple right-click in the timer content area to send all active cooldowns.
         wheel1: Wheel
         wheel2: Adjust the time of a started timer
       enabled:

@@ -1,3 +1,4 @@
+import type { TimerLiveData } from '@shared/cd-timer'
 import type {
   BackgroundMaterialSetting,
   DownloadTask,
@@ -133,11 +134,13 @@ export const useCdTimerWindowStore = defineStore(
       }[]
     >([])
     const gameTime = ref<number | null>(null)
+    const liveData = shallowRef<TimerLiveData | null>(null)
 
     return {
       settings,
       supportedGameModes,
       gameTime,
+      liveData,
       ...basicWindowState
     }
   }

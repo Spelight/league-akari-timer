@@ -1,66 +1,31 @@
 <template>
   <div class="spells-cd-timer">
     <TimerItem
+      v-for="item in items"
+      :key="item.id"
+      :data-timer-row="item.id"
+      :label="item.position || '?'"
       :spell1-id="item.spell1Id"
       :spell2-id="item.spell2Id"
-      :champion-id="item.championId"
-      :timer-type="item.type === 'custom' ? 'countup' : ctws.settings.timerType"
-      @spell1-click="
-        setTimer(
-          item.timer1Id,
-          item.type === 'custom' ? 'countup' : ctws.settings.timerType,
-          item.championId,
-          item.spell1Id
-        )
-      "
-      @spell2-click="
-        setTimer(
-          item.timer2Id,
-          item.type === 'custom' ? 'countup' : ctws.settings.timerType,
-          item.championId,
-          item.spell2Id
-        )
-      "
-      :spell1-base-timestamp="timers[item.timer1Id]?.[1]"
-      :spell2-base-timestamp="timers[item.timer2Id]?.[1]"
-      @spell1-wheel="(_, deltaY) => adjustTimer(item.timer1Id, deltaY)"
-      @spell2-wheel="(_, deltaY) => adjustTimer(item.timer2Id, deltaY)"
-      @spell1-double-right-click="
-        () =>
-          sendInGameText(
-            item.timer1Id,
-            item.type === 'custom' ? 'countup' : ctws.settings.timerType,
-            item.championId,
-            item.spell1Id
-          )
-      "
-      @spell2-double-right-click="
-        () =>
-          sendInGameText(
-            item.timer2Id,
-            item.type === 'custom' ? 'countup' : ctws.settings.timerType,
-            item.championId,
-            item.spell2Id
-          )
-      "
+      :timer-type="ctws.settings.timerType"
+      :spell1-base-timestamp="displayTimestamp(item, 'd')"
+      :spell2-base-timestamp="displayTimestamp(item, 'f')"
+      @spell1-click="toggleTimer(item, 'd')"
+      @spell2-click="toggleTimer(item, 'f')"
+      @spell1-wheel="(_, delta) => adjustTimer(item, 'd', delta)"
+      @spell2-wheel="(_, delta) => adjustTimer(item, 'f', delta)"
+      @position-change="(position) => setPosition(item, position)"
       class="item-margin"
-      v-for="item of items"
-      :key="item.id"
     />
-    <div
-      class="adjustment-indicator"
-      :class="{
-        'opacity-show': currentShowingIndicator
-      }"
-    >
-      <template v-if="currentShowingIndicator">
-        {{ formatDeltaMs(currentShowingIndicator.deltaMs, currentShowingIndicator.type) }}
-      </template>
+    <div v-if="!items.some((item) => item.spell1Id || item.spell2Id)" class="status-text">
+      {{ t('cdTimer.window.waitingForSpells') }}
     </div>
+    <div v-if="lastMessage" class="status-text" role="status">{{ lastMessage }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useRightClick } from '@cd-timer-window/composables/useRightClick'
 import { useAdditionalInfoStore } from '@cd-timer-window/shards/additional-info/store'
 import { useInstance } from '@renderer-shared/shards'
 import { useAppCommonStore } from '@renderer-shared/shards/app-common/store'
@@ -68,179 +33,46 @@ import { useLeagueClientStore } from '@renderer-shared/shards/league-client/stor
 import { WindowManagerRenderer } from '@renderer-shared/shards/window-manager'
 import { useCdTimerWindowStore } from '@renderer-shared/shards/window-manager/store'
 import { EMPTY_PUUID } from '@shared/constants/common'
-import { useTimeoutFn } from '@vueuse/core'
+import {
+  POSITIONS,
+  positionLabel,
+  positionOrder,
+  cooldownSeconds,
+  createSpellTimer,
+  formatTimerMessage,
+  formatActiveTimerMessages,
+  gameTimeNow,
+  liveEnemyRows,
+  timerBaseTimestamp,
+  type SpellTimer,
+  type TimerRow,
+  type TimerLiveData
+} from '@shared/cd-timer'
+import { useIntervalFn } from '@vueuse/core'
 import { useTranslation } from 'i18next-vue'
 import { useMessage } from 'naive-ui'
-import { computed, shallowReactive, shallowRef, watch } from 'vue'
-
+import { computed, ref, shallowRef, shallowReactive, watch } from 'vue'
 import TimerItem from './TimerItem.vue'
 
 const { t } = useTranslation()
-
 const lcs = useLeagueClientStore()
 const ctws = useCdTimerWindowStore()
 const as = useAppCommonStore()
-const message = useMessage()
-
-const wm = useInstance(WindowManagerRenderer)
-
-const POSITION_ORDER: Record<string, number> = {
-  TOP: 0,
-  JUNGLE: 1,
-  MIDDLE: 2,
-  BOTTOM: 3,
-  UTILITY: 4
-}
-
-const normalizePosition = (position?: string) => {
-  const normalized = (position || '').toUpperCase()
-  if (normalized === 'MID') {
-    return 'MIDDLE'
-  }
-  if (normalized === 'BOT' || normalized === 'ADC') {
-    return 'BOTTOM'
-  }
-  if (normalized === 'SUP' || normalized === 'SUPPORT') {
-    return 'UTILITY'
-  }
-  return normalized
-}
-
-const getPositionOrder = (position?: string) => {
-  const normalized = normalizePosition(position)
-  return POSITION_ORDER[normalized] ?? Number.MAX_SAFE_INTEGER
-}
-
-const createEmptyTimer = (count: number) => {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `default-${i}`,
-    type: 'custom',
-    timer1Id: `default-${i}-spell1`,
-    timer2Id: `default-${i}-spell2`,
-    spell1Id: 0,
-    spell2Id: 0,
-    championId: null
-  }))
-}
-
-const timers = shallowReactive<Record<string, ['countup' | 'countdown', number] | null>>({})
-
-const setTimer = (id: string, timerType: string, _championId: number | null, spellId: number) => {
-  const record = timers[id] || null
-
-  // clear the timer
-  if (record) {
-    timers[id] = null
-    return
-  }
-
-  if (timerType === 'countdown') {
-    const spell = lcs.gameData.summonerSpells[spellId]
-    const modeInfo = ctws.supportedGameModes.find(
-      (mode) => mode.gameMode === lcs.gameflow.session?.gameData.queue.gameMode
-    )
-
-    if (spell && modeInfo) {
-      const multiplier = 100 / (100 + modeInfo.abilityHaste)
-      timers[id] = [timerType, Date.now() + spell.cooldown * multiplier * 1000]
-    }
-  } else if (timerType === 'countup') {
-    timers[id] = [timerType, Date.now()]
-    return
-  }
-}
-
-const { start } = useTimeoutFn(
-  () => {
-    currentShowingIndicator.value = null
-  },
-  500,
-  { immediate: false }
-)
-const currentShowingIndicator = shallowRef<{
-  timerId: string
-  type: 'countup' | 'countdown'
-  deltaMs: number
-} | null>(null)
-
-const updateIndicator = (id: string, deltaMs: number, type: 'countup' | 'countdown') => {
-  if (currentShowingIndicator.value && currentShowingIndicator.value.timerId === id) {
-    currentShowingIndicator.value = {
-      timerId: id,
-      type,
-      deltaMs: currentShowingIndicator.value.deltaMs + deltaMs
-    }
-  } else {
-    currentShowingIndicator.value = { timerId: id, type, deltaMs }
-  }
-
-  start()
-}
-
-const formatDeltaMs = (deltaMs: number, type: 'countup' | 'countdown') => {
-  if (type === 'countup') {
-    if (deltaMs > 0) {
-      return `- ${(deltaMs / 1000).toFixed()} s`
-    } else if (deltaMs < 0) {
-      return `+ ${Math.abs(deltaMs / 1000).toFixed()} s`
-    }
-  } else if (type === 'countdown') {
-    if (deltaMs > 0) {
-      return `+ ${(deltaMs / 1000).toFixed()} s`
-    } else if (deltaMs < 0) {
-      return `- ${Math.abs(deltaMs / 1000).toFixed()} s`
-    }
-  }
-
-  return '= 0 s'
-}
-
-const adjustTimer = (id: string, deltaY: number) => {
-  const record = timers[id] || null
-
-  if (record === null) {
-    return
-  }
-
-  const timeDelta = ctws.settings.reverseAdjustmentDirection ? -deltaY * 50 : deltaY * 50 // 50 is a suitable value, up -> negative, down -> positive
-  const currentBaseTime = record[1]
-
-  // 对于countup，不允许调整时间导致其小于基准时间
-  if (record[0] === 'countup') {
-    const adjusted = Math.min(currentBaseTime + timeDelta, Date.now())
-    timers[id] = [record[0], adjusted]
-    updateIndicator(id, adjusted - currentBaseTime, 'countup')
-  } else if (record[0] === 'countdown') {
-    const adjusted = Math.max(currentBaseTime + timeDelta, Date.now())
-    timers[id] = [record[0], adjusted]
-    updateIndicator(id, timeDelta, 'countdown')
-  }
-}
-
-watch(
-  () => ctws.settings.timerType,
-  () => {
-    for (const key in timers) {
-      timers[key] = null
-    }
-  }
-)
-
 const ais = useAdditionalInfoStore()
-
-const items = computed(() => {
-  if (!lcs.gameflow.session || lcs.gameflow.session.phase !== 'InProgress' || !lcs.summoner.me) {
-    return createEmptyTimer(5)
-  }
-
-  const gameModeConfig = ctws.supportedGameModes.find(
-    (mode) => mode.gameMode === lcs.gameflow.session?.gameData.queue.gameMode
-  )
-
-  if (!gameModeConfig) {
-    return createEmptyTimer(5)
-  }
-
+const wm = useInstance(WindowManagerRenderer)
+const message = useMessage()
+const now = ref(Date.now())
+useIntervalFn(() => {
+  now.value = Date.now()
+}, 100)
+const currentGameTime = computed(() => gameTimeNow(ctws.liveData, now.value))
+const timers = shallowReactive<Record<string, SpellTimer>>({})
+const lastMessage = ref('')
+const rosterSnapshot = shallowRef<TimerLiveData | null>(ctws.liveData)
+const manualPositions = shallowReactive<Record<string, string>>({})
+const lcuItems = computed<TimerRow[]>(() => {
+  if (!lcs.gameflow.session || lcs.gameflow.session.phase !== 'InProgress' || !lcs.summoner.me)
+    return []
   const selfPuuid = lcs.summoner.me.puuid
   const game = lcs.gameflow.session.gameData
 
@@ -295,10 +127,11 @@ const items = computed(() => {
     }
   }
 
+  if (!teamOnePuuids.includes(selfPuuid) && !teamTwoPuuids.includes(selfPuuid)) return []
   const theirTeamPuuids = teamOnePuuids.includes(selfPuuid) ? teamTwoPuuids : teamOnePuuids
 
   if (!theirTeamPuuids.length) {
-    return createEmptyTimer(5)
+    return []
   }
 
   const theirTeamSelections = theirTeamPuuids
@@ -310,7 +143,7 @@ const items = computed(() => {
     }))
     .filter((p) => p.selection !== undefined)
     .sort((a, b) => {
-      const positionDelta = getPositionOrder(a.position) - getPositionOrder(b.position)
+      const positionDelta = positionOrder(a.position) - positionOrder(b.position)
       if (positionDelta !== 0) {
         return positionDelta
       }
@@ -321,117 +154,241 @@ const items = computed(() => {
   return theirTeamSelections.map((entry) => {
     const p = entry.selection!
     return {
-      id: `champion-${entry.puuid}-${p.championId}-${p.spell1Id}-${p.spell2Id}`,
-      type: 'summoner-spell',
-      timer1Id: `champion-${entry.puuid}-${p.championId}-${p.spell1Id}`,
-      timer2Id: `champion-${entry.puuid}-${p.championId}-${p.spell2Id}`,
+      id:
+        theirTeamSelections.filter((e) => e.selection?.championId === p.championId).length === 1
+          ? `champion-${lcs.gameData.champions[p.championId]?.alias.toLowerCase() || p.championId}`
+          : entry.puuid,
+      position: positionLabel(entry.position),
+      label:
+        positionLabel(entry.position) ||
+        lcs.gameData.champions[p.championId]?.name ||
+        String(p.championId),
       ...p
     }
   })
 })
 
-const sendInGameText = async (
-  id: string,
-  timerType: string,
-  championId: number | null,
-  spellId: number
-) => {
-  const record = timers[id] || null
+const items = computed<TimerRow[]>(() => {
+  const rows = rosterSnapshot.value
+    ? liveEnemyRows(
+        rosterSnapshot.value,
+        lcs.gameData.champions,
+        lcs.gameData.summonerSpells,
+        lcuItems.value
+      )
+    : lcuItems.value
+  return rows.length
+    ? rows
+        .map((row) => {
+          const position = manualPositions[row.id] ?? row.position
+          return {
+            ...row,
+            position,
+            label:
+              position ||
+              lcs.gameData.champions[row.championId ?? 0]?.name ||
+              (row.position ? '?' : row.label)
+          }
+        })
+        .sort((a, b) => positionOrder(a.position) - positionOrder(b.position))
+    : POSITIONS.map((position) => ({
+        id: position,
+        position,
+        label: position,
+        championId: null,
+        spell1Id: 0,
+        spell2Id: 0
+      }))
+})
 
-  if (record === null || championId === null || ctws.gameTime === null) {
+const setPosition = (row: TimerRow, position: string) => {
+  if (!row.spell1Id && !row.spell2Id) return
+  for (const other of items.value) {
+    if (other.id !== row.id && other.position === position) manualPositions[other.id] = row.position
+  }
+  manualPositions[row.id] = position
+}
+
+const timerId = (row: TimerRow, slot: 'd' | 'f') =>
+  [row.id, slot, slot === 'd' ? row.spell1Id : row.spell2Id].join('-')
+
+const displayTimestamp = (row: TimerRow, slot: 'd' | 'f') => {
+  const timer = timers[timerId(row, slot)]
+  return timer ? timerBaseTimestamp(timer, currentGameTime.value, now.value) : null
+}
+
+const toggleTimer = (row: TimerRow, slot: 'd' | 'f') => {
+  const id = timerId(row, slot)
+  const existing = timers[id]
+  if (
+    existing &&
+    (existing.type === 'countup' ||
+      timerBaseTimestamp(existing, currentGameTime.value, now.value) > now.value)
+  ) {
+    delete timers[id]
     return
   }
-
-  const spell = lcs.gameData.summonerSpells[spellId]
-  const modeInfo = ctws.supportedGameModes.find(
-    (mode) => mode.gameMode === lcs.gameflow.session?.gameData.queue.gameMode
+  const spellId = slot === 'd' ? row.spell1Id : row.spell2Id
+  if (!spellId) {
+    message.warning(t('cdTimer.window.waitingForSpells'))
+    return
+  }
+  const mode = ctws.liveData?.gameMode || lcs.gameflow.session?.gameData.queue.gameMode
+  const haste = ctws.supportedGameModes.find((item) => item.gameMode === mode)?.abilityHaste ?? 0
+  const cooldown = cooldownSeconds(spellId, lcs.gameData.summonerSpells[spellId]?.cooldown, haste)
+  const timer = createSpellTimer(
+    ctws.settings.timerType,
+    cooldown,
+    Date.now(),
+    gameTimeNow(ctws.liveData, Date.now())
   )
-
-  if (!spell || !modeInfo) {
+  if (!timer) {
+    message.warning(t('cdTimer.window.cooldownUnavailable'))
     return
   }
+  timers[id] = timer
+}
 
-  const relativeMs = record[1] - Date.now() + ctws.gameTime * 1000
-  const minutes = Math.floor(relativeMs / 60000)
-  const seconds = Math.floor((relativeMs % 60000) / 1000)
-
-  let text: string | null = null
-  if (timerType === 'countdown') {
-    text = t('cdTimer.window.countdown', {
-      championName: lcs.gameData.champions[championId]?.name || championId,
-      spellName: spell.name,
-      minutes,
-      seconds: seconds.toString().padStart(2, '0')
-    })
-  } else if (timerType === 'countup') {
-    text = t('cdTimer.window.countup', {
-      championName: lcs.gameData.champions[championId]?.name || championId,
-      spellName: spell.name,
-      minutes,
-      seconds: seconds.toString().padStart(2, '0')
-    })
-  }
-
-  if (text) {
-    if (!as.nativeSupport.nativeInput.available) {
-      return
-    }
-
-    try {
-      await wm.cdTimerWindow.sendInGame(text)
-    } catch (error: any) {
-      const code = error?.code as string | undefined
-
-      if (code === 'AlreadySending') {
-        message.warning(t('cdTimer.window.alreadySending'))
-      } else if (code === 'GameClientNotForeground') {
-        message.warning(t('cdTimer.window.gameNotForeground'))
-      } else if (typeof error?.message === 'string' && error.message.includes('No function')) {
-        message.warning(t('cdTimer.window.nativeInjectionUnsupported'))
+// Keep the wall-clock fallback aligned with the game clock (including pauses).
+watch(
+  () => ctws.liveData,
+  (data) => {
+    if (!data) return
+    rosterSnapshot.value = data
+    for (const [id, timer] of Object.entries(timers)) {
+      if (timer.gameTimestamp === null) {
+        timers[id] = {
+          ...timer,
+          gameTimestamp: data.gameTime + (timer.baseTimestamp - Date.now()) / 1000
+        }
       } else {
-        message.warning(t('cdTimer.window.sendFailed', { reason: error?.message || String(error) }))
+        timers[id] = {
+          ...timer,
+          baseTimestamp: Date.now() + (timer.gameTimestamp - data.gameTime) * 1000
+        }
       }
     }
   }
-}
-</script>
+)
 
-<style scoped>
-.spells-cd-timer {
-  position: relative;
-  padding: 8px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
-}
-
-.adjustment-indicator {
-  position: absolute;
-  border-radius: 2px;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80px;
-  height: 40px;
-  background-color: rgba(0, 0, 0, 0.65);
-  pointer-events: none;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-weight: bold;
-  font-size: 16px;
-  transition: opacity 0.2s;
-  opacity: 0;
-
-  &.opacity-show {
-    opacity: 1;
+const adjustTimer = (row: TimerRow, slot: 'd' | 'f', delta: number) => {
+  const id = timerId(row, slot)
+  const timer = timers[id]
+  if (!timer) return
+  const base = timerBaseTimestamp(timer, currentGameTime.value, now.value)
+  const deltaMs = delta * (ctws.settings.reverseAdjustmentDirection ? -50 : 50)
+  const target =
+    timer.type === 'countdown'
+      ? Math.max(now.value, base + deltaMs)
+      : Math.min(now.value, base + deltaMs)
+  timers[id] = {
+    ...timer,
+    baseTimestamp: timer.baseTimestamp + target - base,
+    gameTimestamp:
+      timer.gameTimestamp === null ? null : timer.gameTimestamp + (target - base) / 1000
   }
 }
 
+const clearTimers = () => {
+  for (const id of Object.keys(timers)) delete timers[id]
+  lastMessage.value = ''
+  resetRightClick()
+}
+watch(() => ctws.settings.timerType, clearTimers)
+watch(
+  [() => lcs.gameflow.session?.gameData.gameId, () => lcs.gameflow.session?.phase === 'InProgress'],
+  () => {
+    clearTimers()
+    rosterSnapshot.value = null
+    for (const id of Object.keys(manualPositions)) delete manualPositions[id]
+  }
+)
+
+const sendInGameText = async (row: TimerRow, slot: 'd' | 'f') => {
+  const timer = timers[timerId(row, slot)]
+  if (!timer) return
+  const text = formatTimerMessage(
+    row.label,
+    slot,
+    timer,
+    Date.now(),
+    gameTimeNow(ctws.liveData, Date.now())
+  )
+  if (!text) {
+    message.warning(t('cdTimer.window.cooldownUnavailable'))
+    return
+  }
+  await sendText(text)
+}
+
+const sendAllInGameText = async () => {
+  const timestamp = Date.now()
+  const text = formatActiveTimerMessages(
+    items.value.flatMap((row) =>
+      (['d', 'f'] as const).map((slot) => ({
+        label: row.label,
+        slot,
+        timer: timers[timerId(row, slot)]
+      }))
+    ),
+    timestamp,
+    gameTimeNow(ctws.liveData, timestamp)
+  )
+  if (!text) {
+    message.info(t('cdTimer.window.noActiveTimers'))
+    return
+  }
+  await sendText(text)
+}
+
+const resetRightClick = useRightClick(
+  (target) => {
+    const rowId = target.closest<HTMLElement>('[data-timer-row]')?.dataset.timerRow
+    const row = items.value.find((item) => item.id === rowId)
+    const slot = target.dataset.timerSlot
+    if (row && (slot === 'd' || slot === 'f')) void sendInGameText(row, slot)
+  },
+  () => {
+    void sendAllInGameText()
+  }
+)
+
+const sendText = async (text: string) => {
+  lastMessage.value = text
+  if (!as.nativeSupport.nativeInput.available) {
+    message.warning(t('cdTimer.window.nativeInjectionUnsupported'))
+    return
+  }
+  try {
+    await wm.cdTimerWindow.sendInGame(text)
+  } catch (error: any) {
+    const code = error?.code
+    if (code === 'AlreadySending') message.warning(t('cdTimer.window.alreadySending'))
+    else if (code === 'GameClientNotForeground')
+      message.warning(t('cdTimer.window.gameNotForeground'))
+    else if (code === 'NativeInputNotSupported' || error?.message?.includes('No function'))
+      message.warning(t('cdTimer.window.nativeInjectionUnsupported'))
+    else
+      message.warning(t('cdTimer.window.sendFailed', { reason: error?.message || String(error) }))
+  }
+}
+</script>
+<style scoped>
+.spells-cd-timer {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 .item-margin:not(:last-child) {
   margin-bottom: 4px;
+}
+.status-text {
+  max-width: 200px;
+  margin-top: 6px;
+  color: #fff;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 </style>
