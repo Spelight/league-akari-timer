@@ -66,6 +66,14 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
         },
         showShortcut: { default: settings.showShortcut, schema: z.string().nullable() },
         timerType: { default: settings.timerType, schema: z.enum(['countdown', 'countup']) },
+        ultimateEnabled: {
+          default: settings.ultimateEnabled,
+          schema: z.boolean()
+        },
+        reportKinds: {
+          default: settings.reportKinds,
+          schema: z.array(z.enum(['flash', 'summoner', 'ultimate'])).max(3)
+        },
         reverseAdjustmentDirection: {
           default: settings.reverseAdjustmentDirection,
           schema: z.boolean()
@@ -290,6 +298,13 @@ export class AkariCdTimerWindow extends BaseAkariWindow<CdTimerWindowState, CdTi
   }
 
   protected override getSettingPropKeys() {
-    return ['enabled', 'showShortcut', 'timerType', 'reverseAdjustmentDirection'] as const
+    return [
+      'enabled',
+      'showShortcut',
+      'timerType',
+      'reverseAdjustmentDirection',
+      'reportKinds',
+      'ultimateEnabled'
+    ] as const
   }
 }

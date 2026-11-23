@@ -281,6 +281,14 @@
           </NRadioGroup>
         </SettingsRow>
         <SettingsRow
+          setting-id="multi-window.cd-timer.report-kinds"
+          :label="t('cdTimer.window.reportKinds')"
+          :label-description="t('cdTimer.window.reportHelp')"
+          :label-width="400"
+        >
+          <TimerReportSettings />
+        </SettingsRow>
+        <SettingsRow
           setting-id="multi-window.cd-timer.reverse-adjustment"
           :disabled="!as.nativeSupport.nativeInput.available"
           :label="t('settings.multiWindow.cdTimerWindow.reverseAdjustmentDirection.label')"
@@ -345,6 +353,7 @@ import { TranslationComponent, useTranslation } from 'i18next-vue'
 import { NButton, NIcon, NRadio, NRadioGroup, NScrollbar, NSlider, NSwitch } from 'naive-ui'
 
 import ShortcutSelector from '@main-window/components/ShortcutSelector.vue'
+import TimerReportSettings from '@renderer-shared/components/cd-timer/TimerReportSettings.vue'
 
 const { t } = useTranslation()
 

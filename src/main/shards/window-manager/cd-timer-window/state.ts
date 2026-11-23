@@ -1,4 +1,4 @@
-import type { TimerLiveData } from '@shared/cd-timer'
+import type { TimerLiveData, TimerReportKind } from '@shared/cd-timer'
 import { Rectangle } from 'electron'
 import { makeAutoObservable, observableRef } from 'mobx'
 
@@ -18,6 +18,18 @@ export class CdTimerWindowSettings {
    * 对于自定义的计时器, 永远为 countup
    */
   timerType: 'countdown' | 'countup' = 'countdown'
+
+  ultimateEnabled = true
+
+  setUltimateEnabled(value: boolean) {
+    this.ultimateEnabled = value
+  }
+
+  reportKinds: TimerReportKind[] = ['flash']
+
+  setReportKinds(value: TimerReportKind[]) {
+    this.reportKinds = value
+  }
 
   reverseAdjustmentDirection: boolean = false
 

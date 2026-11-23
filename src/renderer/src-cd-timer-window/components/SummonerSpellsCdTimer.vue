@@ -8,6 +8,17 @@
       :spell1-id="item.spell1Id"
       :spell2-id="item.spell2Id"
       :timer-type="ctws.settings.timerType"
+      :ultimate-enabled="ctws.settings.ultimateEnabled"
+      :ultimate-cooldown="ultimateCooldown(item)"
+      :ultimate-estimate-rank="
+        ultimateCooldowns[item.id] === undefined ? ultimateEstimate(item)?.rank : undefined
+      "
+      :ultimate-ranks="ultimateRankCooldowns(ultimateSpells[item.championId ?? 0])"
+      @ultimate-auto="delete ultimateCooldowns[item.id]"
+      :ultimate-base-timestamp="displayTimestamp(item, 'r')"
+      @ultimate-click="toggleTimer(item, 'r')"
+      @ultimate-wheel="(delta) => adjustUltimate(item, delta)"
+      @ultimate-cooldown-change="(seconds) => (ultimateCooldowns[item.id] = seconds)"
       :spell1-base-timestamp="displayTimestamp(item, 'd')"
       :spell2-base-timestamp="displayTimestamp(item, 'f')"
       @spell1-click="toggleTimer(item, 'd')"
@@ -19,6 +30,13 @@
     />
     <div v-if="!items.some((item) => item.spell1Id || item.spell2Id)" class="status-text">
       {{ t('cdTimer.window.waitingForSpells') }}
+    </div>
+    <div class="report-settings">
+      <div class="status-text">{{ t('cdTimer.window.reportKinds') }}</div>
+      <TimerReportSettings />
+    </div>
+    <div v-if="ctws.settings.ultimateEnabled" class="status-text ultimate-help">
+      {{ t('cdTimer.window.ultimateHelp') }}
     </div>
     <div v-if="lastMessage" class="status-text" role="status">{{ lastMessage }}</div>
   </div>
@@ -44,6 +62,11 @@ import {
   gameTimeNow,
   liveEnemyRows,
   timerBaseTimestamp,
+  shouldReportTimer,
+  adjustUltimateCooldown,
+  estimateUltimateCooldown,
+  ultimateRankCooldowns,
+  type TimerSlot,
   type SpellTimer,
   type TimerRow,
   type TimerLiveData
@@ -53,6 +76,8 @@ import { useTranslation } from 'i18next-vue'
 import { useMessage } from 'naive-ui'
 import { computed, ref, shallowRef, shallowReactive, watch } from 'vue'
 import TimerItem from './TimerItem.vue'
+import { useUltimateData } from '../composables/useUltimateData'
+import TimerReportSettings from '@renderer-shared/components/cd-timer/TimerReportSettings.vue'
 
 const { t } = useTranslation()
 const lcs = useLeagueClientStore()
@@ -68,6 +93,7 @@ useIntervalFn(() => {
 const currentGameTime = computed(() => gameTimeNow(ctws.liveData, now.value))
 const timers = shallowReactive<Record<string, SpellTimer>>({})
 const lastMessage = ref('')
+const ultimateCooldowns = shallowReactive<Record<string, number>>({})
 const rosterSnapshot = shallowRef<TimerLiveData | null>(ctws.liveData)
 const manualPositions = shallowReactive<Record<string, string>>({})
 const lcuItems = computed<TimerRow[]>(() => {
@@ -201,6 +227,26 @@ const items = computed<TimerRow[]>(() => {
       }))
 })
 
+const ultimateSpells = useUltimateData(items, () => ctws.settings.ultimateEnabled)
+const ultimateEstimate = (row: TimerRow) =>
+  estimateUltimateCooldown(ultimateSpells[row.championId ?? 0], row.level)
+const ultimateCooldown = (row: TimerRow) =>
+  ultimateCooldowns[row.id] ?? ultimateEstimate(row)?.seconds ?? null
+const canReport = (row: TimerRow, slot: TimerSlot) =>
+  (slot !== 'r' || ctws.settings.ultimateEnabled) &&
+  shouldReportTimer(row, slot, ctws.settings.reportKinds)
+
+watch(
+  () => ctws.settings.ultimateEnabled,
+  (enabled) => {
+    if (!enabled) {
+      for (const row of items.value) delete timers[timerId(row, 'r')]
+      lastMessage.value = ''
+      resetRightClick()
+    }
+  }
+)
+
 const setPosition = (row: TimerRow, position: string) => {
   if (!row.spell1Id && !row.spell2Id) return
   for (const other of items.value) {
@@ -209,15 +255,16 @@ const setPosition = (row: TimerRow, position: string) => {
   manualPositions[row.id] = position
 }
 
-const timerId = (row: TimerRow, slot: 'd' | 'f') =>
-  [row.id, slot, slot === 'd' ? row.spell1Id : row.spell2Id].join('-')
+const timerId = (row: TimerRow, slot: TimerSlot) =>
+  [row.id, slot, slot === 'r' ? 'ultimate' : slot === 'd' ? row.spell1Id : row.spell2Id].join('-')
 
-const displayTimestamp = (row: TimerRow, slot: 'd' | 'f') => {
+const displayTimestamp = (row: TimerRow, slot: TimerSlot) => {
   const timer = timers[timerId(row, slot)]
   return timer ? timerBaseTimestamp(timer, currentGameTime.value, now.value) : null
 }
 
-const toggleTimer = (row: TimerRow, slot: 'd' | 'f') => {
+const toggleTimer = (row: TimerRow, slot: TimerSlot) => {
+  if (slot === 'r' && !ctws.settings.ultimateEnabled) return
   const id = timerId(row, slot)
   const existing = timers[id]
   if (
@@ -229,13 +276,20 @@ const toggleTimer = (row: TimerRow, slot: 'd' | 'f') => {
     return
   }
   const spellId = slot === 'd' ? row.spell1Id : row.spell2Id
-  if (!spellId) {
+  if (slot !== 'r' && !spellId) {
     message.warning(t('cdTimer.window.waitingForSpells'))
     return
   }
   const mode = ctws.liveData?.gameMode || lcs.gameflow.session?.gameData.queue.gameMode
   const haste = ctws.supportedGameModes.find((item) => item.gameMode === mode)?.abilityHaste ?? 0
-  const cooldown = cooldownSeconds(spellId, lcs.gameData.summonerSpells[spellId]?.cooldown, haste)
+  const cooldown =
+    slot === 'r'
+      ? ultimateCooldown(row)
+      : cooldownSeconds(spellId, lcs.gameData.summonerSpells[spellId]?.cooldown, haste)
+  if (slot === 'r' && cooldown === null) {
+    message.info(t('cdTimer.window.ultimateConfigure'))
+    return
+  }
   const timer = createSpellTimer(
     ctws.settings.timerType,
     cooldown,
@@ -271,7 +325,7 @@ watch(
   }
 )
 
-const adjustTimer = (row: TimerRow, slot: 'd' | 'f', delta: number) => {
+const adjustTimer = (row: TimerRow, slot: TimerSlot, delta: number) => {
   const id = timerId(row, slot)
   const timer = timers[id]
   if (!timer) return
@@ -289,6 +343,21 @@ const adjustTimer = (row: TimerRow, slot: 'd' | 'f', delta: number) => {
   }
 }
 
+const adjustUltimate = (row: TimerRow, delta: number) => {
+  if (!delta) return
+  const timer = timers[timerId(row, 'r')]
+  if (
+    timer &&
+    (timer.type === 'countup' ||
+      timerBaseTimestamp(timer, currentGameTime.value, now.value) > now.value)
+  ) {
+    adjustTimer(row, 'r', delta)
+    return
+  }
+  const step = Math.sign(delta) * (ctws.settings.reverseAdjustmentDirection ? -5 : 5)
+  ultimateCooldowns[row.id] = adjustUltimateCooldown(ultimateCooldown(row), step)
+}
+
 const clearTimers = () => {
   for (const id of Object.keys(timers)) delete timers[id]
   lastMessage.value = ''
@@ -300,11 +369,16 @@ watch(
   () => {
     clearTimers()
     rosterSnapshot.value = null
+    for (const id of Object.keys(ultimateCooldowns)) delete ultimateCooldowns[id]
     for (const id of Object.keys(manualPositions)) delete manualPositions[id]
   }
 )
 
-const sendInGameText = async (row: TimerRow, slot: 'd' | 'f') => {
+const sendInGameText = async (row: TimerRow, slot: TimerSlot) => {
+  if (!canReport(row, slot)) {
+    message.info(t('cdTimer.window.reportExcluded'))
+    return
+  }
   const timer = timers[timerId(row, slot)]
   if (!timer) return
   const text = formatTimerMessage(
@@ -325,11 +399,13 @@ const sendAllInGameText = async () => {
   const timestamp = Date.now()
   const text = formatActiveTimerMessages(
     items.value.flatMap((row) =>
-      (['d', 'f'] as const).map((slot) => ({
-        label: row.label,
-        slot,
-        timer: timers[timerId(row, slot)]
-      }))
+      (['d', 'f', 'r'] as const)
+        .filter((slot) => canReport(row, slot))
+        .map((slot) => ({
+          label: row.label,
+          slot,
+          timer: timers[timerId(row, slot)]
+        }))
     ),
     timestamp,
     gameTimeNow(ctws.liveData, timestamp)
@@ -346,7 +422,7 @@ const resetRightClick = useRightClick(
     const rowId = target.closest<HTMLElement>('[data-timer-row]')?.dataset.timerRow
     const row = items.value.find((item) => item.id === rowId)
     const slot = target.dataset.timerSlot
-    if (row && (slot === 'd' || slot === 'f')) void sendInGameText(row, slot)
+    if (row && (slot === 'd' || slot === 'f' || slot === 'r')) void sendInGameText(row, slot)
   },
   () => {
     void sendAllInGameText()
@@ -382,6 +458,12 @@ const sendText = async (text: string) => {
 }
 .item-margin:not(:last-child) {
   margin-bottom: 4px;
+}
+.report-settings {
+  max-width: 220px;
+}
+.ultimate-help {
+  opacity: 0.8;
 }
 .status-text {
   max-width: 200px;

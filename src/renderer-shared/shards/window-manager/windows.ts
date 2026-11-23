@@ -1,3 +1,5 @@
+import type { TimerReportKind } from '@shared/cd-timer'
+
 import { BaseAkariWindowRenderer } from './base-akari-window'
 import {
   MAIN_SHARD_NAMESPACE_AUX_WINDOW,
@@ -172,6 +174,14 @@ export class AkariCdTimerWindow extends BaseAkariWindowRenderer<
 
   setTimerType(value: 'countdown' | 'countup') {
     return this._context.setting.set(MAIN_SHARD_NAMESPACE_CD_TIMER_WINDOW, 'timerType', value)
+  }
+
+  setUltimateEnabled(value: boolean) {
+    return this._context.setting.set(MAIN_SHARD_NAMESPACE_CD_TIMER_WINDOW, 'ultimateEnabled', value)
+  }
+
+  setReportKinds(value: TimerReportKind[]) {
+    return this._context.setting.set(MAIN_SHARD_NAMESPACE_CD_TIMER_WINDOW, 'reportKinds', value)
   }
 
   setReverseAdjustmentDirection(value: boolean) {

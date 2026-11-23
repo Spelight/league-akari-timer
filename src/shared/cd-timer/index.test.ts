@@ -3,15 +3,20 @@ import { describe, expect, it } from 'vitest'
 import type { PlayerList } from '../types/game-client'
 import {
   type TimerLiveData,
+  adjustUltimateCooldown,
   cooldownSeconds,
   createSpellTimer,
+  estimateUltimateCooldown,
   formatActiveTimerMessages,
   formatTimerMessage,
   gameTimeNow,
+  isFlashTimerSlot,
   liveEnemyRows,
   liveSpellId,
   positionLabel,
-  timerBaseTimestamp
+  shouldReportTimer,
+  timerBaseTimestamp,
+  ultimateRankCooldowns
 } from './index'
 
 describe('enemy summoner cooldowns', () => {
@@ -133,5 +138,70 @@ describe('batch cooldown messages', () => {
         null
       )
     ).toBe('')
+  })
+})
+
+describe('ultimate timer and configurable reports', () => {
+  it('filters each category and combinations without duplicate slots', () => {
+    const row = { spell1Id: 14, spell2Id: 4 }
+    const slots = ['d', 'f', 'r'] as const
+    expect(slots.filter((slot) => shouldReportTimer(row, slot, ['flash']))).toEqual(['f'])
+    expect(slots.filter((slot) => shouldReportTimer(row, slot, ['summoner']))).toEqual(['d', 'f'])
+    expect(slots.filter((slot) => shouldReportTimer(row, slot, ['ultimate']))).toEqual(['r'])
+    expect(slots.filter((slot) => shouldReportTimer(row, slot, ['flash', 'ultimate']))).toEqual([
+      'f',
+      'r'
+    ])
+    expect(
+      slots.filter((slot) => shouldReportTimer(row, slot, ['flash', 'summoner', 'ultimate']))
+    ).toEqual(['d', 'f', 'r'])
+    expect(slots.filter((slot) => shouldReportTimer(row, slot, []))).toEqual([])
+  })
+  it('recognizes Flash in either slot and excludes ultimates and other summoner spells', () => {
+    const row = { spell1Id: 4, spell2Id: 14 }
+    expect(isFlashTimerSlot(row, 'd')).toBe(true)
+    expect(isFlashTimerSlot(row, 'f')).toBe(false)
+    expect(isFlashTimerSlot(row, 'r')).toBe(false)
+    expect(isFlashTimerSlot({ spell1Id: 12, spell2Id: 4 }, 'f')).toBe(true)
+    expect(isFlashTimerSlot({ spell1Id: 0, spell2Id: 0 }, 'd')).toBe(false)
+  })
+  it('bounds manual ultimate cooldown adjustments', () => {
+    expect(adjustUltimateCooldown(null, 5)).toBe(125)
+    expect(adjustUltimateCooldown(90, -5)).toBe(85)
+    expect(adjustUltimateCooldown(1, -5)).toBe(1)
+    expect(adjustUltimateCooldown(600, 5)).toBe(600)
+  })
+  it('keeps an ultimate timer independent of Flash', () => {
+    const ultimate = createSpellTimer('countdown', 90, 0, 900)!
+    const flash = createSpellTimer('countdown', 300, 0, 900)!
+    expect(timerBaseTimestamp(ultimate, 930, 30000)).toBe(90000)
+    expect(timerBaseTimestamp(flash, 930, 30000)).toBe(300000)
+  })
+})
+
+describe('champion ultimate base cooldowns', () => {
+  const spell = {
+    maxLevel: 3,
+    cooldownCoefficients: [120, 90, 60, 0, 0, 0]
+  } as import('../types/league-client/game-data').ChampSpell
+  it('estimates ordinary ranks from level while using the connected client coefficients', () => {
+    expect(ultimateRankCooldowns(spell)).toEqual([
+      { rank: 1, seconds: 120 },
+      { rank: 2, seconds: 90 },
+      { rank: 3, seconds: 60 }
+    ])
+    expect(estimateUltimateCooldown(spell, 6)).toEqual({ rank: 1, seconds: 120 })
+    expect(estimateUltimateCooldown(spell, 10)).toEqual({ rank: 1, seconds: 120 })
+    expect(estimateUltimateCooldown(spell, 11)).toEqual({ rank: 2, seconds: 90 })
+    expect(estimateUltimateCooldown(spell, 16)).toEqual({ rank: 3, seconds: 60 })
+  })
+  it('does not guess for unknown levels, missing data, or special rank progressions', () => {
+    expect(estimateUltimateCooldown(spell)).toBeNull()
+    expect(estimateUltimateCooldown(spell, 5)).toBeNull()
+    expect(estimateUltimateCooldown(null, 18)).toBeNull()
+    expect(estimateUltimateCooldown({ ...spell, maxLevel: 4 }, 18)).toBeNull()
+    expect(
+      estimateUltimateCooldown({ ...spell, cooldownCoefficients: [0, NaN, 60] }, 11)
+    ).toBeNull()
   })
 })

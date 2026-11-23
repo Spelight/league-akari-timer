@@ -1,4 +1,4 @@
-import type { TimerLiveData } from '@shared/cd-timer'
+import type { TimerLiveData, TimerReportKind } from '@shared/cd-timer'
 import type {
   BackgroundMaterialSetting,
   DownloadTask,
@@ -123,6 +123,8 @@ export const useCdTimerWindowStore = defineStore(
       pinned: true,
       showShortcut: null as string | null,
       timerType: 'countdown' as 'countdown' | 'countup',
+      ultimateEnabled: true,
+      reportKinds: ['flash'] as TimerReportKind[],
       reverseAdjustmentDirection: false
     })
 

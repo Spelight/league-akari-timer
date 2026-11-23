@@ -1,9 +1,10 @@
 import type { PlayerList } from '../types/game-client'
-import type { ChampionSimple, SummonerSpell } from '../types/league-client/game-data'
+import type { ChampSpell, ChampionSimple, SummonerSpell } from '../types/league-client/game-data'
 
 export interface TimerRow {
   id: string
   championId: number | null
+  level?: number
   label: string
   position: string
   spell1Id: number
@@ -16,6 +17,42 @@ export interface TimerLiveData {
   gameMode: string
   activePlayerName: string
   players: PlayerList[]
+}
+
+export type TimerSlot = 'd' | 'f' | 'r'
+export type TimerReportKind = 'flash' | 'summoner' | 'ultimate'
+
+export function shouldReportTimer(
+  row: Pick<TimerRow, 'spell1Id' | 'spell2Id'>,
+  slot: TimerSlot,
+  kinds: readonly TimerReportKind[]
+) {
+  if (slot === 'r') return kinds.includes('ultimate')
+  return kinds.includes('summoner') || (kinds.includes('flash') && isFlashTimerSlot(row, slot))
+}
+
+export function isFlashTimerSlot(row: Pick<TimerRow, 'spell1Id' | 'spell2Id'>, slot: TimerSlot) {
+  return (slot === 'd' && row.spell1Id === 4) || (slot === 'f' && row.spell2Id === 4)
+}
+
+export function ultimateRankCooldowns(spell: ChampSpell | null | undefined) {
+  if (!spell) return []
+  return spell.cooldownCoefficients.slice(0, spell.maxLevel).map((seconds, i) => ({
+    rank: i + 1,
+    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null
+  }))
+}
+
+/** Ordinary three-rank ultimates only; this estimates skill allocation, not actual enemy ranks. */
+export function estimateUltimateCooldown(spell: ChampSpell | null | undefined, level?: number) {
+  if (!spell || spell.maxLevel !== 3 || !Number.isFinite(level) || level! < 6) return null
+  const rank = level! >= 16 ? 3 : level! >= 11 ? 2 : 1
+  const seconds = ultimateRankCooldowns(spell)[rank - 1]?.seconds
+  return seconds ? { rank, seconds } : null
+}
+
+export function adjustUltimateCooldown(current: number | null, delta: number) {
+  return Math.min(600, Math.max(1, (current ?? 120) + delta))
 }
 
 export const POSITIONS = ['top', 'jug', 'mid', 'ad', 'sup'] as const
@@ -97,6 +134,7 @@ export function liveEnemyRows(
             ? `champion-${p.rawChampionName.replace(/^game_character_displayname_/, '').toLowerCase()}`
             : `live-${p.riotId || p.summonerName}`,
         championId: champion?.id ?? null,
+        level: p.level,
         position,
         label: position || p.championName,
         spell1Id: spellId(p.summonerSpells.summonerSpellOne) || previous?.spell1Id || 0,
@@ -149,7 +187,7 @@ export function timerBaseTimestamp(timer: SpellTimer, gameTime: number | null, n
 
 export function formatTimerMessage(
   label: string,
-  slot: 'd' | 'f',
+  slot: TimerSlot,
   timer: SpellTimer,
   now: number,
   gameTime: number | null
@@ -166,7 +204,7 @@ export function formatTimerMessage(
 
 /** Keep the supplied row/slot order; omit cancelled and completed cooldowns. */
 export function formatActiveTimerMessages(
-  entries: { label: string; slot: 'd' | 'f'; timer: SpellTimer | undefined }[],
+  entries: { label: string; slot: TimerSlot; timer: SpellTimer | undefined }[],
   now: number,
   gameTime: number | null
 ) {

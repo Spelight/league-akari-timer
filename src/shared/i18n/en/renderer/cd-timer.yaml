@@ -1,6 +1,22 @@
 cdTimer:
   window:
-    noActiveTimers: No active cooldowns to send.
+    ultimateEnabled: Enable ultimate timers
+    ultimateToggleHelp: Disabling hides R, clears active ultimate timers and excludes them from reports. Report selections are retained.
+    ultimateAuto: Auto (base estimate)
+    ultimateEstimate: 'Estimated R{{rank}} base cooldown from champion level, without ability haste. Adjust manually if needed.'
+    reportKinds: Right-click reports
+    reportHelp: Choose any combination. Summoner spells include Flash without duplicates. Clear all to disable reporting.
+    reportExcluded: This spell category is not selected for right-click reporting.
+    reportOptions:
+      flash: Flash
+      summoner: Summoner spells
+      ultimate: Ultimate
+    ultimateHelp: '≈ marks an estimated base R cooldown without haste. Set seconds or scroll to correct.'
+    ultimateConfigure: 'No base estimate available. Choose an ultimate rank or manual seconds.'
+    ultimateCooldown: 'ultimate cooldown'
+    ultimateSettingHelp: 'Set seconds for the next ultimate timer; active timers are unchanged.'
+    ultimateSet: 'Set'
+    noActiveTimers: No active cooldowns match the selected report categories.
     positionHelp: Click to correct the position; unknown positions show a question mark
     waitingForSpells: Waiting for enemy summoner spells
     cooldownUnavailable: Cooldown data is unavailable for this spell. Please try again later.

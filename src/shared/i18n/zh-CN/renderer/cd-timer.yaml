@@ -1,6 +1,22 @@
 cdTimer:
   window:
-    noActiveTimers: 没有正在冷却的技能可发送。
+    ultimateEnabled: 开启大招计时
+    ultimateToggleHelp: 关闭时隐藏 R、清除正在运行的大招计时，并停止发送大招；保留发送范围选择。
+    ultimateAuto: 自动（基础冷却估算）
+    ultimateEstimate: '按英雄等级估算 R{{rank}} 基础冷却，未计技能急速；可手动校正。'
+    reportKinds: 右键发送范围
+    reportHelp: 可多选；召唤师技能包含闪现，不会重复发送。全部取消后不发送。
+    reportExcluded: 该技能类别未在右键发送范围中勾选。
+    reportOptions:
+      flash: 闪现
+      summoner: 召唤师技能
+      ultimate: 大招
+    ultimateHelp: 'R 的 ≈ 为基础冷却估算，未计急速；点秒数或滚轮校正。'
+    ultimateConfigure: '暂无可用的基础冷却估算，请选择大招等级或手动秒数。'
+    ultimateCooldown: '大招冷却'
+    ultimateSettingHelp: '设置下次大招计时的冷却秒数，不修改已启动的计时。'
+    ultimateSet: '设置'
+    noActiveTimers: 没有符合发送设置的正在冷却的技能。
     positionHelp: 点击修正位置；未知位置显示问号
     waitingForSpells: 等待敌方召唤师技能数据
     cooldownUnavailable: 暂无此技能的冷却数据，请稍后重试。

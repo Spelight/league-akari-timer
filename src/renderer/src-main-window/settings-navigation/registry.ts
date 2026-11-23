@@ -530,6 +530,13 @@ const targetDefinitions = [
     descriptionKey: 'settings.multiWindow.cdTimerWindow.timerType.description'
   },
   {
+    id: 'multi-window.cd-timer.report-kinds',
+    route: { tab: 'multi-window' },
+    parentId: 'multi-window.cd-timer',
+    labelKey: 'cdTimer.window.reportKinds',
+    descriptionKey: 'cdTimer.window.reportHelp'
+  },
+  {
     id: 'multi-window.cd-timer.reverse-adjustment',
     route: { tab: 'multi-window' },
     parentId: 'multi-window.cd-timer',

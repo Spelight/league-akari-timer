@@ -11,7 +11,7 @@
 | 窗口     | `src/main/shards/window-manager/cd-timer-window/windows.ts`             | 对局期间启动加载、状态同步、悬浮窗口、原生发送         |
 | 渲染状态 | `src/renderer-shared/shards/window-manager/store.ts`                    | 接收实时对局快照                                       |
 | 组件     | `src/renderer/src-cd-timer-window/components/SummonerSpellsCdTimer.vue` | 敌方行、手动位置修正、计时器管理、消息反馈             |
-| 单行控件 | `src/renderer/src-cd-timer-window/components/TimerItem.vue`             | T/J/M/A/S、D/F、倒计时显示、左键与滚轮                 |
+| 单行控件 | `src/renderer/src-cd-timer-window/components/TimerItem.vue`             | T/J/M/A/S、D/F/R、倒计时显示、左键与滚轮               |
 | 手势     | `src/renderer/src-cd-timer-window/composables/useRightClick.ts`         | 双右键 / 三右键竞争及生命周期清理                      |
 
 ## 数据与时钟
@@ -21,7 +21,7 @@ flowchart LR
   LCU[LCU 对局与静态技能数据] --> Rows[敌方阵容与位置排序]
   Live[Live Client 实时接口] --> Rows
   Live --> Clock[游戏时钟采样]
-  Rows --> UI[五行 D/F 计时器]
+  Rows --> UI[五行 D/F/R 计时器]
   UI --> Timer[手动启动 / 调整 / 取消]
   Clock --> Timer
   Timer --> Format[预计转好时刻或剩余时间]
@@ -46,6 +46,18 @@ flowchart LR
 
 ## 版本构建
 
-预览版本：`1.5.2-beta.timer.20261118.3`。本 fork 的 `electron-builder.timer.cjs` 继承上游打包配置，添加 Windows 管理员清单、固定预览版本和独立输出目录；不提交个人设置、日志或本机工具路径。
+预览版本：`1.5.2-beta.timer.20261123.1`。本 fork 的 `electron-builder.timer.cjs` 继承上游打包配置，添加 Windows 管理员清单、固定预览版本和独立输出目录；不提交个人设置、日志或本机工具路径。
 
 修改作者：Spelight，使用 AI 编程辅助。应用框架、原生模块、LCU 和其他未修改功能继续归属上游贡献者。
+
+## 大招与发送范围（2026-11-23）
+
+每个敌人增加独立 R 槽。`useUltimateData` 通过现有 `LeagueClientRenderer.api.gameData.getChampDetails` 读取当前客户端英雄数据，提取 `spellKey = r` 的 `cooldownCoefficients` 和 `maxLevel`。只在大招功能开启且客户端已连接时获取，对英雄缓存；请求可中止，有 5 秒截止，失败 15 秒后重试。断开客户端时清空缓存，不使用跨版本硬编码大招数据。
+
+Live Client 阵容数据携带英雄等级。普通三级大招按 6 / 11 / 16 级估算 R1 / R2 / R3，界面用 `≈` 提示这是未计技能急速的基础冷却。未知英雄 / 等级、非三级大招、未到 6 级、冷却无效时不猜测，允许从该英雄各等级冷却或通用秒数列表手动选择。实际技能加点、技能急速、大招急速和特殊模式修正不在自动计算范围内。
+
+手动校正以敌人 ID 保存，交换位置后跟随原敌人，每局重置；预设修改和升级只影响下次启动。计时中滚轮调整当前截止时刻，未计时每次调整 5 秒（1–600 秒）。R 复用游戏时钟、倒计时 / 正计时、取消与结束处理，报时使用 `top r 1630` 或 `top r 1:30`。
+
+`ultimateEnabled` 默认开启，通过已有设置服务持久化并跨窗口同步。关闭时隐藏 R、清除已启动的大招计时并排除大招发送；保留手动预设和发送类别选择，重新开启不会自动恢复已清除的计时。
+
+`reportKinds` 默认 `['flash']`，也通过设置服务持久化。主窗口和悬浮窗共用 `TimerReportSettings`，提供闪现 / 召唤师技能 / 大招三个勾选项。单发和汇总共用筛选函数；汇总遍历每行 D/F/R 一次，因此同时勾选闪现与召唤师技能不会重复输出。空数组禁用全部发送。发送范围只影响消息，其他类别仍可正常计时；大招关闭时其发送选项禁用。

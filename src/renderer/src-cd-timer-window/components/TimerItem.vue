@@ -73,6 +73,61 @@
       </div>
       <div class="click-indicator" :class="{ highlight: spell2Pressed }"></div>
     </div>
+    <template v-if="ultimateEnabled">
+      <div class="spacer"></div>
+      <div
+        class="summoner-spell ultimate-spell"
+        role="button"
+        tabindex="0"
+        :aria-label="`${label} r`"
+        :title="t('cdTimer.window.ultimateHelp')"
+        @keydown.enter.prevent="activateUltimate"
+        @keydown.space.prevent="activateUltimate"
+        @pointerdown.left.prevent="captureSpellPointer"
+        @pointerup.left.prevent="activateUltimate"
+        @wheel.prevent="emits('ultimateWheel', $event.deltaY)"
+        ref="ultimate"
+        data-timer-slot="r"
+      >
+        <span class="slot-label">r</span>
+        <div class="ultimate-face">R</div>
+        <div
+          v-if="ultimateBaseTimestamp !== null"
+          class="mask"
+          :class="{ timeout: ultimateFormattedTimeText === 'OK' }"
+        >
+          {{ ultimateFormattedTimeText }}
+        </div>
+        <div class="click-indicator" :class="{ highlight: ultimatePressed }"></div>
+      </div>
+      <NDropdown
+        trigger="click"
+        :show="showUltimateSettings"
+        :animated="false"
+        :options="ultimateOptions"
+        :scrollable="true"
+        :style="{ maxHeight: '240px' }"
+        @update:show="showUltimateSettings = $event"
+        @select="selectUltimateCooldown"
+      >
+        <NButton
+          text
+          size="tiny"
+          class="ultimate-setting"
+          :aria-label="`${label} ${t('cdTimer.window.ultimateCooldown')}`"
+          :title="
+            ultimateEstimateRank
+              ? t('cdTimer.window.ultimateEstimate', { rank: ultimateEstimateRank })
+              : t('cdTimer.window.ultimateSettingHelp')
+          "
+          >{{
+            ultimateCooldown === null
+              ? t('cdTimer.window.ultimateSet')
+              : `${ultimateEstimateRank ? '≈' : ''}${Number(ultimateCooldown.toFixed(1))}s`
+          }}</NButton
+        >
+      </NDropdown>
+    </template>
   </div>
 </template>
 
@@ -84,9 +139,13 @@ import { ChevronRight16Filled as ChevronRight16FilledIcon } from '@vicons/fluent
 import { Timer16Filled as Timer16FilledIcon } from '@vicons/fluent'
 import { useIntervalFn, useMousePressed } from '@vueuse/core'
 import { NIcon, NButton, NDropdown } from 'naive-ui'
-import { ref, useTemplateRef, watch } from 'vue'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 
 const emits = defineEmits<{
+  ultimateAuto: []
+  ultimateClick: []
+  ultimateWheel: [deltaY: number]
+  ultimateCooldownChange: [seconds: number]
   positionChange: [position: string]
   spell1Click: [spellId: number, type: 'countdown' | 'countup']
   spell2Click: [spellId: number, type: 'countdown' | 'countup']
@@ -102,9 +161,43 @@ const captureSpellPointer = (event: PointerEvent) => {
 }
 
 const { t } = useTranslation()
+const showUltimateSettings = ref(false)
+const ultimateOptions = computed(() => [
+  { label: t('cdTimer.window.ultimateAuto'), key: 'auto' },
+  ...ultimateRanks
+    .filter((value) => value.seconds !== null)
+    .map((value) => ({
+      label: `R${value.rank} · ${value.seconds}s`,
+      key: `rank:${value.rank}`
+    })),
+  ...[30, 45, 60, 75, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200, 240, 300]
+    .filter((seconds) => !ultimateRanks.some((rank) => rank.seconds === seconds))
+    .map((seconds) => ({ label: `${seconds}s`, key: seconds }))
+])
+const selectUltimateCooldown = (key: string | number) => {
+  if (key === 'auto') emits('ultimateAuto')
+  else {
+    const seconds =
+      typeof key === 'string' && key.startsWith('rank:')
+        ? ultimateRanks.find((value) => value.rank === Number(key.slice(5)))?.seconds
+        : Number(key)
+    if (seconds && Number.isFinite(seconds)) emits('ultimateCooldownChange', seconds)
+  }
+  showUltimateSettings.value = false
+}
+const activateUltimate = () => {
+  if (ultimateCooldown === null) showUltimateSettings.value = true
+  else emits('ultimateClick')
+}
+
 const positionOptions = POSITIONS.map((position) => ({ label: position, key: position }))
 
 const {
+  ultimateEnabled = true,
+  ultimateEstimateRank = undefined,
+  ultimateRanks = [],
+  ultimateCooldown = null,
+  ultimateBaseTimestamp = null,
   label = '',
   spell1Id = 1,
   spell2Id = 2,
@@ -112,6 +205,11 @@ const {
   spell1BaseTimestamp = null,
   spell2BaseTimestamp = null
 } = defineProps<{
+  ultimateEnabled?: boolean
+  ultimateEstimateRank?: number
+  ultimateRanks?: { rank: number; seconds: number | null }[]
+  ultimateCooldown?: number | null
+  ultimateBaseTimestamp?: number | null
   label?: string
 
   spell1Id?: number
@@ -126,6 +224,7 @@ const {
   timerType?: 'countdown' | 'countup'
 }>()
 
+const ultimateFormattedTimeText = ref('')
 const spell1FormattedTimeText = ref('')
 const spell2FormattedTimeText = ref('')
 
@@ -139,6 +238,9 @@ const formatTimeToSeconds = (type: 'countdown' | 'countup', timestamp: number): 
 }
 
 const update = () => {
+  if (ultimateBaseTimestamp !== null) {
+    ultimateFormattedTimeText.value = formatTimeToSeconds(timerType, ultimateBaseTimestamp)
+  }
   if (spell1BaseTimestamp !== null) {
     spell1FormattedTimeText.value = formatTimeToSeconds(timerType, spell1BaseTimestamp)
   }
@@ -154,10 +256,10 @@ const { pause, resume } = useIntervalFn(update, 100, {
 })
 
 watch(
-  [() => spell1BaseTimestamp, () => spell2BaseTimestamp],
-  ([t1, t2]) => {
+  [() => spell1BaseTimestamp, () => spell2BaseTimestamp, () => ultimateBaseTimestamp],
+  ([t1, t2, t3]) => {
     update()
-    if (t1 !== null || t2 !== null) {
+    if (t1 !== null || t2 !== null || t3 !== null) {
       resume()
     } else {
       pause()
@@ -168,6 +270,8 @@ watch(
   }
 )
 
+const ultimateEl = useTemplateRef('ultimate')
+const { pressed: ultimatePressed } = useMousePressed({ target: ultimateEl })
 const spell1El = useTemplateRef('spell1')
 const spell2El = useTemplateRef('spell2')
 
@@ -223,6 +327,24 @@ const { pressed: spell2Pressed } = useMousePressed({
     color: #fff;
   }
 
+  .ultimate-face {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #35354d;
+    color: #e7d3ff;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .ultimate-setting {
+    width: 42px;
+    margin-left: 4px;
+    color: #ddd;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
   .spacer {
     width: 4px;
   }
