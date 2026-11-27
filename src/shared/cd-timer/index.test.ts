@@ -205,3 +205,28 @@ describe('champion ultimate base cooldowns', () => {
     ).toBeNull()
   })
 })
+
+describe('client assets with missing rank metadata', () => {
+  // Observed Annie client asset: maxLevel=0; last rank padded to six coefficients.
+  const spell = {
+    spellKey: 'r',
+    maxLevel: 0,
+    cooldownCoefficients: [130, 115, 100, 100, 100, 100]
+  } as import('../types/league-client/game-data').ChampSpell
+  it('keeps real cooldowns when maxLevel is zero and ignores padded ranks', () => {
+    expect(ultimateRankCooldowns(spell, 1)).toEqual([
+      { rank: 1, seconds: 130 },
+      { rank: 2, seconds: 115 },
+      { rank: 3, seconds: 100 }
+    ])
+    expect(estimateUltimateCooldown(spell, 6, 1)).toEqual({ rank: 1, seconds: 130 })
+    expect(estimateUltimateCooldown(spell, 11, 1)).toEqual({ rank: 2, seconds: 115 })
+    expect(estimateUltimateCooldown(spell, 16, 1)).toEqual({ rank: 3, seconds: 100 })
+  })
+  it('does not apply ordinary ranks to transform or six-rank ultimates', () => {
+    for (const id of [43, 60, 76, 77, 126])
+      expect(estimateUltimateCooldown(spell, 16, id)).toBeNull()
+    expect(ultimateRankCooldowns(spell, 77)).toHaveLength(6)
+    expect(ultimateRankCooldowns(spell, 76)).toHaveLength(4)
+  })
+})

@@ -35,19 +35,44 @@ export function isFlashTimerSlot(row: Pick<TimerRow, 'spell1Id' | 'spell2Id'>, s
   return (slot === 'd' && row.spell1Id === 4) || (slot === 'f' && row.spell2Id === 4)
 }
 
-export function ultimateRankCooldowns(spell: ChampSpell | null | undefined) {
+// Client assets may report maxLevel=0 and pad coefficients to six entries.
+// These champions do not follow the ordinary three-rank ultimate progression.
+const SPECIAL_ULTIMATE_RANKS: Record<number, number> = { 43: 4, 60: 4, 76: 4, 77: 6, 126: 4 }
+
+function ultimateMaxRank(spell: ChampSpell, championId?: number | null) {
+  if (spell.maxLevel > 0) return spell.maxLevel
+  return SPECIAL_ULTIMATE_RANKS[championId ?? 0] ?? 3
+}
+
+export function ultimateRankCooldowns(
+  spell: ChampSpell | null | undefined,
+  championId?: number | null
+) {
   if (!spell) return []
-  return spell.cooldownCoefficients.slice(0, spell.maxLevel).map((seconds, i) => ({
-    rank: i + 1,
-    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null
-  }))
+  return spell.cooldownCoefficients
+    .slice(0, ultimateMaxRank(spell, championId))
+    .map((seconds, i) => ({
+      rank: i + 1,
+      seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null
+    }))
 }
 
 /** Ordinary three-rank ultimates only; this estimates skill allocation, not actual enemy ranks. */
-export function estimateUltimateCooldown(spell: ChampSpell | null | undefined, level?: number) {
-  if (!spell || spell.maxLevel !== 3 || !Number.isFinite(level) || level! < 6) return null
+export function estimateUltimateCooldown(
+  spell: ChampSpell | null | undefined,
+  level?: number,
+  championId?: number | null
+) {
+  if (
+    !spell ||
+    SPECIAL_ULTIMATE_RANKS[championId ?? 0] ||
+    ultimateMaxRank(spell, championId) !== 3 ||
+    !Number.isFinite(level) ||
+    level! < 6
+  )
+    return null
   const rank = level! >= 16 ? 3 : level! >= 11 ? 2 : 1
-  const seconds = ultimateRankCooldowns(spell)[rank - 1]?.seconds
+  const seconds = ultimateRankCooldowns(spell, championId)[rank - 1]?.seconds
   return seconds ? { rank, seconds } : null
 }
 

@@ -90,7 +90,15 @@
         data-timer-slot="r"
       >
         <span class="slot-label">r</span>
-        <div class="ultimate-face">R</div>
+        <LcuImage
+          v-if="ultimateIcon"
+          :key="ultimateIcon"
+          :src="ultimateIcon"
+          :alt="ultimateName || 'R'"
+          class="ultimate-icon"
+          draggable="false"
+        />
+        <div v-else class="ultimate-face">R</div>
         <div
           v-if="ultimateBaseTimestamp !== null"
           class="mask"
@@ -133,6 +141,7 @@
 
 <script setup lang="ts">
 import { POSITIONS } from '@shared/cd-timer'
+import LcuImage from '@renderer-shared/components/LcuImage.vue'
 import { useTranslation } from 'i18next-vue'
 import SummonerSpellDisplay from '@renderer-shared/components/widgets/SummonerSpellDisplay.vue'
 import { ChevronRight16Filled as ChevronRight16FilledIcon } from '@vicons/fluent'
@@ -193,6 +202,8 @@ const activateUltimate = () => {
 const positionOptions = POSITIONS.map((position) => ({ label: position, key: position }))
 
 const {
+  ultimateIcon = undefined,
+  ultimateName = undefined,
   ultimateEnabled = true,
   ultimateEstimateRank = undefined,
   ultimateRanks = [],
@@ -205,6 +216,8 @@ const {
   spell1BaseTimestamp = null,
   spell2BaseTimestamp = null
 } = defineProps<{
+  ultimateIcon?: string
+  ultimateName?: string
   ultimateEnabled?: boolean
   ultimateEstimateRank?: number
   ultimateRanks?: { rank: number; seconds: number | null }[]
@@ -327,6 +340,11 @@ const { pressed: spell2Pressed } = useMousePressed({
     color: #fff;
   }
 
+  .ultimate-icon {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+  }
   .ultimate-face {
     width: 32px;
     height: 32px;

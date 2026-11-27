@@ -13,7 +13,9 @@
       :ultimate-estimate-rank="
         ultimateCooldowns[item.id] === undefined ? ultimateEstimate(item)?.rank : undefined
       "
-      :ultimate-ranks="ultimateRankCooldowns(ultimateSpells[item.championId ?? 0])"
+      :ultimate-ranks="ultimateRankCooldowns(ultimateSpells[item.championId ?? 0], item.championId)"
+      :ultimate-icon="ultimateSpells[item.championId ?? 0]?.abilityIconPath"
+      :ultimate-name="ultimateSpells[item.championId ?? 0]?.name"
       @ultimate-auto="delete ultimateCooldowns[item.id]"
       :ultimate-base-timestamp="displayTimestamp(item, 'r')"
       @ultimate-click="toggleTimer(item, 'r')"
@@ -229,7 +231,7 @@ const items = computed<TimerRow[]>(() => {
 
 const ultimateSpells = useUltimateData(items, () => ctws.settings.ultimateEnabled)
 const ultimateEstimate = (row: TimerRow) =>
-  estimateUltimateCooldown(ultimateSpells[row.championId ?? 0], row.level)
+  estimateUltimateCooldown(ultimateSpells[row.championId ?? 0], row.level, row.championId)
 const ultimateCooldown = (row: TimerRow) =>
   ultimateCooldowns[row.id] ?? ultimateEstimate(row)?.seconds ?? null
 const canReport = (row: TimerRow, slot: TimerSlot) =>

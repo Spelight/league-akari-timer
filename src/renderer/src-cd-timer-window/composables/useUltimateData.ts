@@ -34,7 +34,7 @@ export function useUltimateData(rows: Ref<TimerRow[]>, enabled: () => boolean) {
         controller.abort()
       })
       const ids = [...new Set(rows.value.map((row) => row.championId))].filter(
-        (id): id is number => id !== null && spells[id] === undefined
+        (id): id is number => id !== null && !spells[id]
       )
       void Promise.allSettled(
         ids.map(async (id) => {

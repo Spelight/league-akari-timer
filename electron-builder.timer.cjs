@@ -6,5 +6,5 @@ const config = yaml.load(fs.readFileSync(path.join(__dirname, 'electron-builder.
 config.directories.output = path.join(__dirname, 'dist/timer')
 config.files.push('!work{,/**}', '!electron-builder.timer.cjs')
 config.win.requestedExecutionLevel = 'requireAdministrator'
-config.extraMetadata = { version: '1.5.2-beta.timer.20261123.1' }
+config.extraMetadata = { version: '1.5.2-beta.timer.20261127.1' }
 module.exports = config
